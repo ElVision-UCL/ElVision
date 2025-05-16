@@ -1,0 +1,38 @@
+trigger: none
+
+pool:
+  vmImage: windows-latest
+
+variables:
+  buildConfiguration: 'Release'
+  solution: '**/*.sln'
+
+steps:
+- powershell: |
+    $branchName = "$(System.PullRequest.SourceBranch)"
+    Write-Host "Source branch is: $branchName"
+
+    # Strip the 'refs/heads/' part
+    $branchName = $branchName -replace 'refs/heads/', ''
+
+    # Check if the branch is either 'development' or starts with 'hotfix/'
+    if ($branchName -ne "development") {
+      Write-Host "Pull requests can only come from 'development' branch"
+      exit 1
+    }
+  displayName: 'Ensure branch is development or hotfix'
+
+- task: DotNetCoreCLI@2
+  displayName: Build
+  inputs:
+    command: 'build'
+    projects: '$(solution)'
+
+- task: VSTest@3
+  inputs:
+    testSelector: 'testAssemblies'
+    testAssemblyVer2: |
+      **\Tests\bin\**\Tests.dll
+    searchFolder: '$(System.DefaultWorkingDirectory)'
+    codeCoverageEnabled: true 
+    diagnosticsEnabled: true

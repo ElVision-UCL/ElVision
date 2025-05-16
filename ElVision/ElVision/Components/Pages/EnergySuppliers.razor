@@ -1,0 +1,695 @@
+﻿@page "/EnergySuppliers"
+@using ElVision.Components.Account
+@using ElVision.Handlers
+@using ElVision.Utilities
+@using ElVisionLibrary.Models.ElPris
+@using ElVisionLibrary.Models.EnergiDataService
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Newtonsoft.Json
+@using ElVision.Extensions
+@inject IJSRuntime JS
+@inject IBlobStorageService BlobStorageService
+@inject HttpClient HttpClient
+@inject ITariffsService TariffService
+@inject IElspotService ElspotService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject UserManager<User> UserManager
+@inject IElOverblikService ElOverblik
+
+@attribute [Authorize]
+
+<style>
+    .selected {
+        background-color: #04b084 !important;
+    }
+
+        .selected > td {
+            color: white !important;
+        }
+
+            .selected > td .mud-input {
+                color: white !important;
+            }
+</style>
+
+@if (!LoadingService.IsVisible)
+{
+    if (meteringPoint is not null && annualConsumption is not null && zipCode is not null)
+    {
+        <MudGrid Justify="Justify.Center">
+            <MudItem xs="10">
+                <MudCard>
+                    <MudCardContent>
+                        <MudGrid Justify="Justify.Center">
+                            <MudItem xs="4">
+                                <MudText>Dit Energiforbrug for et helt år (for sidste måned og 12 måneder tilbage)</MudText>
+                                <MudText>@annualConsumption</MudText>
+                            </MudItem>
+                            <MudItem xs="4">
+                                <MudText>Postnummer</MudText>
+                                <MudText>@zipCode</MudText>
+                            </MudItem>
+                            <MudItem xs="4">
+                                <MudText>Brug personlig forbrugsprofil</MudText>
+                                <MudSwitch Value="useCustomProfile"
+                                           ValueChanged="@((bool value) => OnUseCustomProfileChanged(value))"
+                                   Color="MudBlazor.Color.Primary" />
+                            </MudItem>
+                        </MudGrid>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        </MudGrid>
+    }
+    else
+    {
+        <MudGrid Justify="Justify.Center">
+            <MudItem xs="6">
+                <MudCard Style="padding:20px;">
+                    <MudCardHeader>
+                        <CardHeaderContent>
+                            <MudText Align="MudBlazor.Align.Center">Vælg input felter</MudText>
+                        </CardHeaderContent>
+                    </MudCardHeader>
+                    <MudGrid>
+                        <MudItem xs="12">
+                            <MudForm Spacing="4" @bind-IsValid="@inputIsValid">
+                                <MudItem xs="12">
+                                    <MudTextField InputType="InputType.Number" Required="true" RequiredError="Forbrug skal indtastes!" Label="Årligt forbrug i kWh" Immediate="true" @bind-Value="@annualConsumption" />
+                                </MudItem>
+                                <MudItem xs="12">
+                                    <MudTextField InputType="InputType.Number" Required="true" RequiredError="Postnummer skal indtastes!" Label="Postnummer" Immediate="true" @bind-Value="@zipCode"></MudTextField>
+                                </MudItem>
+                                <MudItem xs="12">
+                                    <MudSelect Required="false" T="ConsumptionProfile" @bind-Value="Profile"
+                                               Variant="Variant.Outlined"
+                                               Label="Vælg profil (valgfrit)">
+                                        @foreach (var profile in profiles)
+                                        {
+                                            <MudSelectItem Value="profile">@profile.Name</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </MudItem>
+                                <MudItem xs="12">
+                                    <MudButton Style="background: #04b084; color:white" FullWidth="true" Disabled="@(!inputIsValid)" OnClick="Reload">Hent Data</MudButton>
+                                </MudItem>
+                            </MudForm>
+                        </MudItem>
+                    </MudGrid>
+                </MudCard>
+            </MudItem>
+        </MudGrid>
+    }
+
+    <MudGrid Style="margin-top:10px;" Spacing="2" Justify="Justify.Center">
+        <MudItem xs="10">
+            <MudTable T="ProductDetails" ServerData="GetAllProductDetails" Dense="false" Hover="true" @ref="table" RowClassFunc="@SelectedRowClassFunc" OnRowClick="ToggleDetails" RowClass="cursor-pointer">
+                <ToolBarContent>
+                    <MudText Typo="Typo.h6">Estimerede priser for el-leverandør aftaler</MudText>
+                    <MudSpacer />
+                    <MudTextField T="string" ValueChanged="@(s=>OnSearch(s))" Placeholder="Søg" Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.Search" IconSize="MudBlazor.Size.Medium" Class="mt-0"></MudTextField>
+                </ToolBarContent>
+                <HeaderContent>
+                    <MudTh Style="width: 25%">
+                        <MudTableSortLabel SortLabel="supplier_field" T="ProductDetails">Leverandør</MudTableSortLabel>
+                    </MudTh>
+                    <MudTh Style="width: 20%">Plan</MudTh>
+                    <MudTh Style="width: 20%">
+                        <MudTableSortLabel SortLabel="price_field" T="ProductDetails">Estimeret pris</MudTableSortLabel>
+                    </MudTh>
+                    <MudTh Style="width: 15%">
+                        <MudTableSortLabel SortLabel="type_field" T="ProductDetails">Type</MudTableSortLabel>
+                    </MudTh>
+                    <MudTh Style="width: 15%">
+                        <MudTableSortLabel SortLabel="binding_field" T="ProductDetails">Bindingsperiode</MudTableSortLabel>
+                    </MudTh>
+                    <MudTh Style="width: 5%"></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Leverandør">@context.Supplier</MudTd>
+                    <MudTd DataLabel="Plan">@context.Name</MudTd>
+                    <MudTd DataLabel="Estimeret pris (m. moms)">@context.TotalPrice</MudTd>
+                    <MudTd DataLabel="Type">@context.Product.ProductInformation.PriceTypeName</MudTd>
+                    <MudTd DataLabel="Binding">@context.Product.BindingPeriod</MudTd>
+                    <MudTd><MudIcon Icon="@context.DropDownIcon"></MudIcon></MudTd>
+                </RowTemplate>
+                <ChildRowContent>
+                    @if (context.ShowDetails)
+                    {
+                        <MudTr>
+                            <td colspan="6">
+                                <MudCard Style="padding-bottom:30px; padding-left:20px; padding-right:20px; border-bottom: 1px solid rgba(0, 0, 0, 0.1);" Elevation="0">
+                                    <MudCardHeader>
+                                        <CardHeaderContent>
+                                            <MudText Style="text-decoration:underline;" Align="MudBlazor.Align.Center" Typo="Typo.body1">Prisdetaljer for <strong>@context.Supplier</strong></MudText>
+                                        </CardHeaderContent>
+                                    </MudCardHeader>
+                                </MudCard>
+                            </td>
+                        </MudTr>
+                        <MudTr>
+                            <td colspan="3">
+                                <MudCard Style="padding-bottom:30px; padding-left:20px; padding-right:20px; border-bottom: 1px solid rgba(0, 0, 0, 0.1);" Elevation="0">
+                                    <MudCardContent Class="pa-5">
+                                        <MudGrid>
+                                            @if (context.Prices.Any())
+                                            {
+                                                @foreach (var price in context.Prices)
+                                                {
+                                                    <MudItem Style="background-color:#192633; margin-top:10px; padding:10px;" xs="12">
+                                                        <MudText Align="MudBlazor.Align.Center" Typo="Typo.body1">@price.Name</MudText>
+                                                        <MudText Align="MudBlazor.Align.Center" Typo="Typo.body1">@price.AmountText</MudText>
+                                                    </MudItem>
+                                                    @if (price.SubPrices is not null)
+                                                        @foreach (var subprice in price.SubPrices)
+                                                        {
+                                                            <MudItem Style="padding:10px;" xs="4">
+                                                                <MudInputLabel>@subprice.Name</MudInputLabel>
+                                                                <MudText>@subprice.AmountText</MudText>
+                                                            </MudItem>
+                                                        }
+                                                }
+                                            }
+                                        </MudGrid>
+                                    </MudCardContent>
+                                </MudCard>
+                            </td>
+                            <td colspan="3">
+                                <MudCard Style="border-bottom: 1px solid rgba(0, 0, 0, 0.1); height:100%;" Elevation="0">
+                                    <MudCardContent Class="pa-5">
+                                        <MudGrid>
+                                            @if (context.Product.Fees.Any())
+                                            {
+                                                <MudItem Style="padding:10px;" xs="12">
+                                                    <MudText Align="MudBlazor.Align.Center" Typo="Typo.body1">Obligatoriske Gebyrer</MudText>
+                                                </MudItem>
+
+                                                @foreach (var fee in context.Product.Fees)
+                                                {
+                                                    <MudItem Style="padding:10px;" xs="12">
+                                                        <MudText Align="MudBlazor.Align.Center">@fee.Name</MudText>
+                                                        <MudText Align="MudBlazor.Align.Center" Typo="Typo.body2">@fee.AmountText</MudText>
+                                                    </MudItem>
+                                                }
+                                            }
+                                            @if (context.Product.OtherFees.Any())
+                                            {
+                                                <MudItem Style="padding:10px;" xs="12">
+                                                    <MudText Align="MudBlazor.Align.Center" Typo="Typo.body1">Yderligere Gebyrer</MudText>
+                                                </MudItem>
+
+                                                @foreach (var otherFee in context.Product.OtherFees)
+                                                {
+                                                    <MudItem Style="padding:10px;" xs="12">
+                                                        <MudText Align="MudBlazor.Align.Center" Typo="Typo.body2">@otherFee</MudText>
+                                                    </MudItem>
+                                                }
+                                            }
+                                            @if (context.Product.OrderUrl is not null)
+                                            {
+                                                <MudItem Style="padding:10px;" xs="12">
+                                                    <MudText Align="MudBlazor.Align.Center" Typo="Typo.body1"><MudLink Target="_blank" Href="@context.Product.ReadMoreUrl">Link til produktside</MudLink></MudText>
+                                                </MudItem>
+                                            }
+                                        </MudGrid>
+                                    </MudCardContent>
+                                </MudCard>
+                            </td>
+                        </MudTr>
+                    }
+
+                </ChildRowContent>
+                <NoRecordsContent>
+                    <MudText>No matching records found</MudText>
+                </NoRecordsContent>
+                <LoadingContent>
+                    <MudText>Loading...</MudText>
+                </LoadingContent>
+                <PagerContent>
+                    <MudTablePager />
+                </PagerContent>
+            </MudTable>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private IEnumerable<ProductDetails> pagedData;
+    private MudTable<ProductDetails> table;
+    private int totalItems;
+    private string searchString;
+    bool inputIsValid;
+    private string zipCode;
+    private ZipCodeData ZipCodeData;
+    private string annualConsumption;
+    private List<AverageElspotPrice> averageDailyPrices;
+    private List<ConsumptionProfile> profiles = new();
+    private ConsumptionProfile profile;
+    private string userToken;
+    private string dataAccessToken;
+    private bool useCustomProfile = false;
+    private MeteringPointModel meteringPoint;
+    public ConsumptionProfile Profile
+    {
+        get => profile;
+        set
+        {
+            if (profile != value)
+            {
+                if (value.Name == "Ingen")
+                {
+                    profile = null;
+                }
+                else
+                {
+                    profile = value;
+                }
+            }
+        }
+    }
+
+    private void OnSearch(string text)
+    {
+        searchString = text;
+        table.ReloadServerData();
+    }
+
+    private void Reload()
+    {
+        table.ReloadServerData();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            LoadingService.Show();
+            var standardConsumptionProfiles = await LoadStandardConsumptionProfilesAsync();
+            profiles.Add(new ConsumptionProfile { Name = "Ingen" });
+            if (standardConsumptionProfiles is not null)
+            {
+                profiles.AddRange(standardConsumptionProfiles.StandardConsumptionProfiles.Private.Profiles);
+            }
+            await LoadZipCodeDataAsync();
+            await GetLastMonthDaysAverageElspotAsync();
+
+            await GetUserToken();
+            await GetDataAccessTokenAsync();
+            await GetMeteringPointAsync();
+
+            if (meteringPoint is not null)
+            {
+                await GetConsumptionForYearAsync();
+            }
+        }
+        catch (Exception e)
+        {
+            NotificationService.Add(new NotificationModel(e.Message, NotificationType.Error));
+        }
+        finally
+        {
+            LoadingService.Hide();
+        }
+    }
+
+    private async Task OnUseCustomProfileChanged(bool value)
+    {
+        useCustomProfile = value;
+        if (useCustomProfile)
+        {
+            await GetConsumptionProfileForDayAsync();
+        }
+        else
+        {
+            profile = null;
+        }
+        Reload();
+    }
+
+    private async Task GetConsumptionForYearAsync()
+    {
+        try
+        {
+            LoadingService.Show("Indlæser Time Series for hele året");
+
+            var to = DateTime.Now.AddDays(-(DateTime.Now.Day));
+            var from = to.AddMonths(-12);
+
+            var operationResult = await ElOverblik.GetTimeSeriesAsync(dataAccessToken, meteringPoint.MeteringPointId, from, to, "Month");
+            if (operationResult.Success)
+            {
+                var timeSeriesResponse = OperationResultHandlers.GetData<TimeSeriesResponse>(operationResult);
+                var dataDocument = timeSeriesResponse.Result.FirstOrDefault()?.MyEnergyDataMarketDocument;
+
+                var energyTimeSeries = TimeSeriesUtilities.CreateEnergyTimeSeries(dataDocument);
+                energyTimeSeries.RoundToTwoDecimals();
+
+                double annualConsumptionDouble = 0;
+                foreach(var period in energyTimeSeries.Periods)
+                {
+                    annualConsumptionDouble += period.Quantity;
+                }
+
+                annualConsumption = annualConsumptionDouble.ToString();
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+        }
+    }
+
+    private async Task GetConsumptionProfileForDayAsync()
+    {
+        try
+        {
+            // Get today's date
+            DateTime today = DateTime.Now;
+
+            // Calculate the start of this week (Monday)
+            int daysSinceMonday = (int)today.DayOfWeek - (int)DayOfWeek.Monday;
+            if (daysSinceMonday < 0) daysSinceMonday += 7; // Handle Sunday case
+            DateTime mondayThisWeek = today.AddDays(-daysSinceMonday).Date;
+
+            // Get last week's Monday and Sunday
+            DateTime lastWeekMonday = mondayThisWeek.AddDays(-7);
+            DateTime lastWeekSunday = lastWeekMonday.AddDays(7);
+
+            var operationResult = await ElOverblik.GetTimeSeriesAsync(dataAccessToken, meteringPoint.MeteringPointId, lastWeekMonday, lastWeekSunday, "Hour");
+            if (operationResult.Success)
+            {
+                var timeSeriesResponse = OperationResultHandlers.GetData<TimeSeriesResponse>(operationResult);
+                var dataDocument = timeSeriesResponse.Result.FirstOrDefault()?.MyEnergyDataMarketDocument;
+
+                var energyTimeSeries = TimeSeriesUtilities.CreateEnergyTimeSeries(dataDocument);
+                energyTimeSeries.RoundToTwoDecimals();
+
+                Dictionary<string, List<HourProfile>> hourProfileDictionary = new();
+
+                double totalConsumption = 0;
+                var periods = energyTimeSeries.Periods;
+
+                foreach(var period in periods)
+                {
+                    totalConsumption += period.Quantity;
+                }
+
+                foreach (DayOfWeek day in Enum.GetValues(typeof(DayOfWeek)))
+                {
+
+                    List<TimeSeriesPeriod> periodsInWeek = new();
+                    foreach (var period in energyTimeSeries.Periods)
+                    {
+                        if (period.PeriodStart.DayOfWeek == day)
+                        {
+                            periodsInWeek.Add(period);
+                        }
+                    }
+
+                    List<HourProfile> hourProfiles = new();
+                    // Calculate daily percentage
+                    for (int i = 0; i < periodsInWeek.Count; i++)
+                    {
+                        double percentage = (periodsInWeek[i].Quantity / totalConsumption) * 100;
+                        hourProfiles.Add(new HourProfile { PercentagePerHour = percentage, HourFrom = periodsInWeek[i].PeriodStart.Hour, HourTo = periodsInWeek[i].PeriodEnd.Hour });
+                    }
+
+                    hourProfileDictionary[$"{(int)day + 1}"] = hourProfiles;
+
+                }
+
+                profile = new ConsumptionProfile { HourProfile = hourProfileDictionary };
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+        }
+    }
+
+    private async Task GetUserToken()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity.IsAuthenticated)
+        {
+            var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var appUser = await UserManager.FindByIdAsync(userId);
+            userToken = APIEncryption.Decrypt(appUser.ElOverblikApiKey);
+
+        }
+    }
+
+    private async Task GetDataAccessTokenAsync()
+    {
+        try
+        {
+            LoadingService.Show("Indhenter Data Access Token");
+            var operationResult = await ElOverblik.GetDataAccessTokenAsync(userToken);
+            if (operationResult.Success)
+            {
+                dataAccessToken = OperationResultHandlers.GetData<TokenResponse>(operationResult).Result;
+            }
+            else
+            {
+                OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+        }
+    }
+
+    private async Task GetMeteringPointAsync()
+    {
+        try
+        {
+            LoadingService.Show("Indhenter Metering Point");
+            var operationResult = await ElOverblik.GetMeteringPointAsync(dataAccessToken);
+            if (operationResult.Success)
+            {
+                var meteringPoints = OperationResultHandlers.GetData<MeteringPointResponse>(operationResult).MeteringPoints;
+
+                if (meteringPoints.Count > 0)
+                {
+                    meteringPoint = meteringPoints.First();
+                    meteringPoint.SetPriceArea();
+                    zipCode = meteringPoint.Postcode;
+                }
+            }
+            else
+            {
+                OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+        }
+    }
+
+    private string SelectedRowClassFunc(ProductDetails productDetails, int rowNumber)
+    {
+        try
+        {
+            if (productDetails is not null)
+            {
+                if (productDetails.ShowDetails)
+                {
+                    productDetails.DropDownIcon = Icons.Material.Filled.ArrowDropDown;
+                    return "cursor-pointer selected";
+                }
+                else
+                {
+                    productDetails.DropDownIcon = Icons.Material.Filled.ArrowDropUp;
+                    return "cursor-pointer";
+                }
+            }
+            return "cursor-pointer";
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+        }
+        return "cursor-pointer";
+    }
+
+    private void ToggleDetails(TableRowClickEventArgs<ProductDetails> tableRowClickEventArgs)
+    {
+        try
+        {
+            if (tableRowClickEventArgs.Item is not null)
+            {
+                tableRowClickEventArgs.Item.ShowDetails = !tableRowClickEventArgs.Item.ShowDetails;
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+        }
+    }
+
+    private async Task GetLastMonthDaysAverageElspotAsync()
+    {
+        LoadingService.Show("Get Energy Prices");
+        var operationResult = await ElspotService.GetElspotPricesLast1500HourAsync();
+        if (operationResult.Success)
+        {
+            var elspotResponse = OperationResultHandlers.GetData<ElspotResponse>(operationResult);
+            elspotResponse.ConvertMwhToKwh();
+            elspotResponse.ConvertKronerToØre();
+            elspotResponse.GetLastMonthOnly();
+            var elspotPrices = elspotResponse.ElspotPrices;
+            averageDailyPrices = ElspotUtilities.GetDailyAverage(elspotPrices);
+            averageDailyPrices = averageDailyPrices.OrderBy(x => x.TimeOfDay).ToList();
+        }
+        else
+        {
+            OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+        }
+    }
+
+    private async Task<DistributionAreaChargeData> LoadDistributionAreaDataAsync(string gridArea)
+    {
+        DistributionAreaChargeData distributionAreaData = null;
+        var operationResult = await BlobStorageService.GetDistributionAreaData(gridArea);
+        if (operationResult.Success)
+        {
+            distributionAreaData = OperationResultHandlers.GetData<DistributionAreaChargeData>(operationResult);
+        }
+        else
+        {
+            OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+        }
+        return distributionAreaData;
+    }
+
+    private async Task LoadZipCodeDataAsync()
+    {
+        var operationResult = await BlobStorageService.GetZipCodeData();
+        if (operationResult.Success)
+        {
+            ZipCodeData = OperationResultHandlers.GetData<ZipCodeData>(operationResult);
+        }
+        else
+        {
+            OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+        }
+    }
+
+    private async Task<ProductData> LoadProductDataAsync(string gridArea)
+    {
+        ProductData productData = null;
+        var operationResult = await BlobStorageService.GetProductData(gridArea);
+        if (operationResult.Success)
+        {
+            productData = OperationResultHandlers.GetData<ProductData>(operationResult);
+        }
+        else
+        {
+            OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+        }
+        return productData;
+    }
+
+    private async Task<StandardConsumptionProfilesData> LoadStandardConsumptionProfilesAsync()
+    {
+        StandardConsumptionProfilesData standardConsumptionProfilesData = null;
+        var operationResult = await BlobStorageService.GetStandardConsumptionProfilesData();
+        if (operationResult.Success)
+        {
+            standardConsumptionProfilesData = OperationResultHandlers.GetData<StandardConsumptionProfilesData>(operationResult);
+        }
+        else
+        {
+            OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+        }
+        return standardConsumptionProfilesData;
+    }
+
+    private async Task<List<NationalTariff>> LoadNationalTariffsAsync()
+    {
+        List<NationalTariff> nationalTariffs = null;
+        var operationResult = await TariffService.GetNationalTariffsAsync();
+        if (operationResult.Success)
+        {
+            var tariffData = OperationResultHandlers.GetData<TariffData>(operationResult);
+            nationalTariffs = TariffUtilities.ExtractNationalTariffs(tariffData);
+        }
+        else
+        {
+            OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+        }
+        return nationalTariffs;
+    }
+
+    private async Task<TableData<ProductDetails>> GetAllProductDetails(TableState state, CancellationToken token)
+    {
+        try
+        {
+            if (inputIsValid || meteringPoint is not null && annualConsumption is not null && zipCode is not null)
+            {
+                if (averageDailyPrices is null)
+                {
+                    NotificationService.Add(new NotificationModel("Kunne ikke få fat i spot priserne, prøve igen.", NotificationType.Error));
+                    return new();
+                }
+
+                var distributionArea = GridAreaUtilities.GetDistributionArea(ZipCodeData, int.Parse(zipCode));
+                if (distributionArea is null)
+                {
+                    NotificationService.Add(new NotificationModel("kunne ikke finde det givne postnummer :( hvis du er sikker på at postnummeret eksisteret, venligst skriv til support eller prøv igen.", NotificationType.Error));
+                    return new();
+                }
+
+                var distributionAreaData = await LoadDistributionAreaDataAsync(distributionArea.GridArea);
+                if (distributionAreaData is null)
+                {
+                    NotificationService.Add(new NotificationModel("Kunne ikke få fat i data for distributionsområdet, prøve igen.", NotificationType.Error));
+                    return new();
+                }
+
+                var productData = await LoadProductDataAsync(distributionArea.GridArea);
+                if (productData is null)
+                {
+                    NotificationService.Add(new NotificationModel("Kunne ikke få fat i leverandør produkterne, prøv igen.", NotificationType.Error));
+                    return new();
+                }
+
+                var nationalTariffs = await LoadNationalTariffsAsync();
+                if (nationalTariffs is null)
+                {
+                    NotificationService.Add(new NotificationModel("Kunne ikke få fat i nationale tariffer, prøv igen.", NotificationType.Error));
+                    return new();
+                }
+
+                List<ProductDetails> productDetailsList = new();
+                foreach (var product in productData.Products)
+                {
+                    productDetailsList.Add(Utilities.ProductUtilities.GetProductDetails(double.Parse(annualConsumption), true, profile, product, product.NextProduct, distributionAreaData, averageDailyPrices, nationalTariffs));
+                }
+                productDetailsList.RemoveAll(s => s == null);
+
+                productDetailsList.FilterListBySearch(searchString);
+
+                productDetailsList.SortListByColumn(state);
+
+                pagedData = productDetailsList.Skip(state.Page * state.PageSize).Take(state.PageSize).ToArray();
+
+                return new TableData<ProductDetails>() { TotalItems = productDetailsList.Count, Items = pagedData };
+            }
+            else
+            {
+                return new();
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+            return new();
+        }
+    }
+}

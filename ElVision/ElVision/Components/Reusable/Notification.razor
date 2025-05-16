@@ -1,0 +1,33 @@
+﻿@inject INotificationService NotificationService
+
+<div class="notification-container">
+    @foreach (var notification in NotificationService.Notifications)
+    {
+        <div class="notification @notification.Type.ToString().ToLower()">
+            <button class="close-btn" @onclick="() => RemoveNotification(notification)">&times;</button>
+            @notification.Message
+        </div>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        NotificationService.OnNotificationAdded += OnNotificationAdded;
+    }
+
+    private void OnNotificationAdded()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void RemoveNotification(NotificationModel notification)
+    {
+        NotificationService.Remove(notification);
+    }
+
+    public void Dispose()
+    {
+        NotificationService.OnNotificationAdded -= OnNotificationAdded;
+    }
+}

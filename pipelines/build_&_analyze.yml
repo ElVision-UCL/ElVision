@@ -1,0 +1,61 @@
+trigger: none
+
+pool:
+  vmImage: windows-latest
+
+variables:
+  buildConfiguration: 'Release'
+  solution: 'ElVision/ElVision.sln'
+
+steps:
+- script: mkdir -p "$(Build.ArtifactStagingDirectory)/CodeAnalysisLogs"
+  displayName: 'Create Code Analysis Logs Directory'
+  
+- task: DotNetCoreCLI@2
+  inputs:
+    command: 'build'
+    projects: '**/*.csproj'
+    arguments: '/p:RunAnalyzersDuringBuild=true /p:ReportAnalyzer=true /p:errorlog=$(Build.ArtifactStagingDirectory)/CodeAnalysisLogs/analyzers-report.sarif,version=2.1'
+  displayName: 'Build solution with code analyzers'
+
+# - task: WhiteSource@21
+#   inputs:
+#     cwd: '$(System.DefaultWorkingDirectory)'
+#     projectName: 'ElVision'
+#   displayName: Run Mend Bolt Scan
+
+# - task: MicrosoftSecurityDevOps@1
+#   displayName: 'Run Microsoft Security AntiMalware and BinSkim'
+#   inputs:
+#     tools: 'AntiMalware, BinSkim'
+#     break: false
+#     publish: true
+
+- task: Gitleaks@2
+  displayName: 'Run Gitleaks'
+  inputs:
+    scanlocation: '$(Build.SourcesDirectory)/ElVision'
+    configtype: 'predefined'
+    predefinedconfigfile: 'GitleaksUdmCombo.toml'
+    scanmode: 'nogit'
+    reportformat: 'sarif'
+    uploadresults: false
+    reportname: 'gitleaks-report'
+    reportfolder: '$(Build.ArtifactStagingDirectory)/CodeAnalysisLogs'
+    taskfail: false
+    redact: false
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Upload Analyze Logs'
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)/CodeAnalysisLogs'
+    ArtifactName: 'CodeAnalysisLogs'
+
+- task: VSTest@3
+  inputs:
+    testSelector: 'testAssemblies'
+    testAssemblyVer2: |
+      **\Tests\bin\**\Tests.dll
+    searchFolder: '$(System.DefaultWorkingDirectory)'
+    codeCoverageEnabled: true 
+    diagnosticsEnabled: true

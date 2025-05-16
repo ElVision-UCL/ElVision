@@ -1,0 +1,28 @@
+﻿@inject ILoadingService SpinnerService
+
+<div class="overlay @(SpinnerService.IsVisible ? "visible" : "hidden")">
+    <div class="loading-content">
+        <div class="spinner"></div>
+        @if (!string.IsNullOrEmpty(SpinnerService.Message))
+        {
+            <div class="loading-message">@SpinnerService.Message</div>
+        }
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        SpinnerService.OnSpinnerChanged += OnSpinnerChanged;
+    }
+
+    private void OnSpinnerChanged(bool isVisible, string? message)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        SpinnerService.OnSpinnerChanged -= OnSpinnerChanged;
+    }
+}

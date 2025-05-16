@@ -1,0 +1,870 @@
+﻿@page "/dashboard"
+@using ElVision.Handlers
+@using ElVisionLibrary.Models.ElPris
+@using ElVision.Utilities
+@using ElVisionLibrary.Models.EnergiDataService
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using ElVision.Components.Account
+@using System.Collections
+@using static MudBlazor.CategoryTypes
+
+@inject IElOverblikService ElOverblik
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject UserManager<User> UserManager
+@inject ITariffsService TariffService
+@inject IElspotService ElspotService
+@inject IBlobStorageService BlobStorageService
+@inject IJSRuntime JSRuntime
+@inject ILogger<Dashboard> logger
+@inject IClimateReportService ClimateReportService
+
+@attribute [Authorize]
+
+@if (!LoadingService.IsVisible)
+{
+    <MudGrid>
+        @if (meteringPoint is not null)
+        {
+            <MudItem xs="12">
+                <MudTable Items="new List<MeteringPointModel>{ meteringPoint }" Striped="true" Hover="true" Bordered="true">
+                    <HeaderContent>
+                        <MudTh>Metering Point ID</MudTh>
+                        <MudTh>Energileverandør</MudTh>
+                        <MudTh>Post Nummer</MudTh>
+                        <MudTh>By</MudTh>
+                        <MudTh>Adresse</MudTh>
+                        <MudTh>Forbruger</MudTh>
+                        <MudTh>Oprettelses dato</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.MeteringPointId</MudTd>
+                        <MudTd>@context.EnergySupplierName</MudTd>
+                        <MudTd>@context.Postcode</MudTd>
+                        <MudTd>@context.CityName</MudTd>
+                        <MudTd>@context.StreetName @context.BuildingNumber</MudTd>
+                        <MudTd>@context.FirstConsumerPartyName</MudTd>
+                        <MudTd>@context.ConsumerStartDate.ToShortDateString()</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </MudItem>
+
+            <MudItem xs="12">
+                <MudCard>
+                    <MudCardContent>
+                        <MudGrid>
+                            @if (yearEnergyConsumption != string.Empty)
+                            {
+                                <MudItem xs="4" Style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+
+                                    <MudTooltip Text="Dette års samlede energiforbrug indtil videre">
+                                        <div style="display: flex; align-items: center;">
+                                            <MudText>Total forbrug</MudText>
+
+                                            <MudIconButton Icon="@Icons.Material.Filled.Info"
+                                                           Size="MudBlazor.Size.Small"
+                                                           Style="margin-left: 5px;" />
+                                        </div>
+
+                                        <MudText Style="font-size: 1.5rem; font-weight: bold;">@yearEnergyConsumption</MudText>
+                                    </MudTooltip>
+
+                                </MudItem>
+
+                            }
+                            <!-- Last 30 Days Percentage Display -->
+                            <MudItem xs="4" Style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+                                <MudTooltip Text="@PercentageToolTip">
+
+                                    <div style="display: flex; align-items: center;">
+                                        <MudText>Forbrugsændring</MudText>
+
+                                        <MudIconButton Icon="@Icons.Material.Filled.Info"
+                                                       Size="MudBlazor.Size.Small"
+                                                       Style="margin-left: 5px;" />
+                                    </div>
+
+                                    <!-- Percentage display below the title and icon -->
+                                    <MudText Style="font-size: 1.5rem; font-weight: bold;"
+                                             Color="@GetPercentageColor(percentageDifference)">
+                                        @percentageDifference %
+                                    </MudText>
+
+
+                                </MudTooltip>
+                            </MudItem>
+                            @if (averageMonthlyConsumption != string.Empty)
+                            {
+                                <MudItem xs="4" Style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+                                    <MudTooltip Text="Gennemsnitligt månedsforbrug fra sidste måned og 12 måneder tilbage">
+                                        <div style="display: flex; align-items: center;">
+                                            <MudText>Gennemsnitlig forbrug</MudText>
+                                            <MudIconButton Icon="@Icons.Material.Filled.Info"
+                                                           Size="MudBlazor.Size.Small"
+                                                           Style="margin-left: 5px;" />
+                                        </div>
+                                        <MudText Style="font-size: 1.5rem; font-weight: bold;">@averageMonthlyConsumption</MudText>
+                                    </MudTooltip>
+                                </MudItem>
+
+                            }
+                        </MudGrid>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12">
+                <MudCard>
+                    <MudCardContent>
+                        <MudGrid>
+                            <MudItem xs="6" sm="4">
+                                <MudSelect Label="Hurtig valg" Value="timePeriod" ValueChanged="@((string value) => TimePeriodChanged(value))">
+                                    @foreach (var option in timePeriods)
+                                    {
+                                        <MudSelectItem Value="@option">@option</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </MudItem>
+                            <MudFlexBreak />
+                            <MudItem xs="6" sm="4">
+                                <MudSelect Label="Tidsinterval" @bind-Value="DisplayedTimeResolution">
+                                    @foreach (var option in timeResolutionOptions)
+                                    {
+                                        <MudSelectItem Value="@option">@option</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="6" sm="4">
+                                <MudDatePicker Label="Start dato" @bind-Date="startDate" Disabled="@string.IsNullOrEmpty(timeResolution)" MinDate="@meteringPoint.ConsumerStartDate" MaxDate="@DateTime.Now"></MudDatePicker>
+                            </MudItem>
+                            <MudItem xs="6" sm="4">
+                                <MudDatePicker Label="Slut dato" @bind-Date="endDate" Disabled="@string.IsNullOrEmpty(timeResolution)" MinDate="@startDate" MaxDate="@DateTime.Now" di></MudDatePicker>
+                            </MudItem>
+                            <MudItem xs="12">
+                                <MudButton FullWidth="true" OnClick="() => GetTimeSeriesWithPreviousYearAsync(hideLoading: true)" Style="background-color: #04b084"> Hent forbrug</MudButton>
+                            </MudItem>
+                        </MudGrid>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12">
+                <MudCard>
+                    <MudCardContent>
+                        <ApexChart TItem="TimeSeriesPeriod" Title="Energi Forbrug" @ref="energyUsageChart" Height="400" Options="timeSeriesChartOptions">
+
+
+                            <ApexPointSeries TItem="TimeSeriesPeriod"
+                                             Name="@CurrentYearName"
+                                             SeriesType="SeriesType.Bar"
+                                             XValue="e => TimeSeriesUtilities.GetLabelForPeriod(e)"
+                                             YValue="e => (decimal)e.Quantity"
+                                             Items="energyUsage"
+                                             Color="#04b084" 
+                                             />
+
+                            @if (@energyUsageLastYear != null)
+                            {
+                                <ApexPointSeries TItem="TimeSeriesPeriod"
+                                                 Name="@LastYearName"
+                                                 SeriesType="SeriesType.Bar"
+                                                 XValue="e => TimeSeriesUtilities.GetLabelForPeriod(e)"
+                                                 YValue="e => (decimal)e.Quantity"
+                                                 Items="energyUsageLastYear"
+                                                 Color="#045c7c" />
+                            }
+
+
+
+                        </ApexChart>
+                        <p>Data er hentet og opdateret, via ElOverblik</p>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="6">
+                <MudCard>
+                    <MudCardContent>
+                        <ApexChart TItem="ReportGroup" Title="Energikilder (kWh)" @ref="climateChart" Height="500">
+                            <ApexPointSeries TItem="ReportGroup"
+                                             ShowDataLabels="true"
+                                             Name="Energikilder"
+                                             SeriesType="SeriesType.Donut"
+                                             XValue="e => e.ReportGrp"
+                                             YValue="e => Convert.ToDecimal(e.UserShareKwh)"
+                                             Items="reportGroups" />
+
+                        </ApexChart>
+                        <p>Data er hentet og opdateret, via Energi Data Service</p>
+                        <p>Dataen er baseret på total forbruget for de sidste 365 dage</p>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        }
+        @if (meteringPoint is not null && elspotPrices.Any())
+        {
+            <MudItem xs="6">
+                <MudCard>
+                    <MudCardContent>
+                        <ApexChart TItem="ElspotPrice" Title="Dagens El Pris (elspot pris inkl. tariffer og moms)" Height="488" Options="PriceChartOption">
+                            <ApexPointSeries TItem="ElspotPrice"
+                                             Name="DKK per kWh"
+                                             SeriesType="SeriesType.Area"
+                                             XValue="e => e.HourDK.ToString(timeFormat)"
+                                             YValue="e => Math.Round(e.SpotPriceDKK, 2)"
+                                             Items="elspotPrices"
+                                             Color="#045c7c" />
+                        </ApexChart>
+                        <p>Data er hentet og opdateret, via Energi Data Service</p>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        }
+        else if (meteringPoint is null)
+        {
+            <MudItem xs="12">
+                <MudNumericField @bind-Value="zipCode"
+                                 Label="Enter a postcode"
+                                 Variant="Variant.Filled"
+                                 Placeholder="Enter a postcode"
+                                 Adornment="Adornment.Start"
+                                 AdornmentIcon="@Icons.Material.Filled.LocationOn"
+                                 Margin="Margin.Dense" />
+            </MudItem>
+
+            <MudItem xs="12">
+                <MudButton OnClick="async () => await HandleUserZipCodeInput()"
+                           Variant="Variant.Filled"
+                           FullWidth="true">
+                    Submit
+                </MudButton>
+            </MudItem>
+
+            <MudItem xs="12">
+                <MudStack Direction="Row" AlignItems="MudBlazor.AlignItems.Center" Spacing="1">
+                    <MudText Typo="Typo.h6" Color="MudBlazor.Color.Primary" Class="ml-2">
+                        Elnetselskab: @chargeOwner
+                    </MudText>
+                </MudStack>
+            </MudItem>
+
+            @if (zipCode != 0 && elspotPrices.Any())
+            {
+                <MudItem xs="10">
+                    <MudCard>
+                        <MudCardContent>
+                            <ApexChart TItem="ElspotPrice" Title="Dagens Energi Pris (elspot pris inkl. tariffer og moms)" @ref="elspotPriceChart" Height="488" Options="PriceChartOption">
+                                <ApexPointSeries TItem="ElspotPrice"
+                                                 Name="DKK per kWh"
+                                                 SeriesType="SeriesType.Area"
+                                                 XValue="e => e.HourDK.ToString(timeFormat)"
+                                                 YValue="e => Math.Round(e.SpotPriceDKK, 2)"
+                                                 Items="elspotPrices"
+                                                 Color="#045c7c" />
+                            </ApexChart>
+                            <p>Data er hentet og opdateret, via Energi Data Service</p>
+                        </MudCardContent>
+                    </MudCard>
+                </MudItem>
+            }
+        }
+    </MudGrid>
+}
+
+
+@code {
+    private string dataAccessToken = string.Empty;
+    private string userToken = string.Empty;
+    private MeteringPointModel meteringPoint = null;
+    private ApexChart<ElspotPrice> elspotPriceChart = new();
+    private DateTime? startDate;
+    private DateTime? endDate;
+    private DateTime? climateStartDate;
+    private DateTime? climateEndDate;
+    private string timeFormat = "HH:mm";
+    private string timeResolution = string.Empty;
+    private string displayedTimeResolution = string.Empty;
+    public string DisplayedTimeResolution
+    {
+        get => displayedTimeResolution;
+        set
+        {
+            if (displayedTimeResolution != value)
+            {
+                displayedTimeResolution = value;
+                switch (displayedTimeResolution)
+                {
+                    case "Timer":
+                        timeResolution = "Hour";
+                        break;
+                    case "Dage":
+                        timeResolution = "Day";
+                        break;
+                    case "Måneder":
+                        timeResolution = "Month";
+                        break;
+                    case "År":
+                        timeResolution = "Year";
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+    string averageMonthlyConsumption = string.Empty;
+    private string timePeriod = "Sidste 7 Dage";
+    private List<string> timePeriods = new List<string> { "Igår", "Sidste 7 Dage", "Sidste 30 Dage", "Dette År" };
+    private List<string> timeResolutionOptions = new List<string> { "Timer", "Dage", "Måneder", "År" };
+    private List<ElspotPrice> elspotPrices = new();
+    private int zipCode = 0;
+    private bool isUserPostcodeInputVisible = false;
+    string chargeOwner = "";
+    private List<TimeSeriesPeriod> energyUsage = new List<TimeSeriesPeriod>();
+    private List<TimeSeriesPeriod> energyUsageLastYear = new List<TimeSeriesPeriod>();
+    private string CurrentYearName => $"Nuværende periode";
+    private string LastYearName => $"Samme periode - 1 år tilbage";
+
+    private string changeType;
+    private double percentageDifference;
+    private double last30DaysTotal;
+    private double previous30DaysTotal;
+    private string PercentageToolTip =>
+    $"Dit elforbrug i de seneste 30 dage var {last30DaysTotal} kWh, hvilket er en {changeType} på {percentageDifference} % sammenlignet med de foregående 30 dage.";
+
+    private ApexChart<TimeSeriesPeriod> energyUsageChart = new();
+    private List<ReportGroup> reportGroups = new List<ReportGroup>();
+    private ApexChart<ReportGroup> climateChart = new();
+    private ZipCodeData zipCodeData = new();
+    private List<ClimateRecord> climateRecordPriceArea = new();
+    private List<TimeSeriesPeriod> yearTimeSeriesPeriods = new();
+    string yearEnergyConsumption = string.Empty;
+
+    private ApexChartOptions<TimeSeriesPeriod> timeSeriesChartOptions { get; set; } = new ApexChartOptions<TimeSeriesPeriod>();
+
+    private ApexChartOptions<ElspotPrice> PriceChartOption = new ApexChartOptions<ElspotPrice>();
+
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            LoadingService.Show("Initialiserer");
+
+
+            PriceChartOption.Tooltip = new ApexCharts.Tooltip
+                {
+                    Y = new TooltipY
+                    {
+                        Formatter = @"function (val)
+                    {
+                        return val.toFixed(2) + ' DKK';
+                    }"
+                    }
+                };
+
+            timeSeriesChartOptions.Tooltip = new ApexCharts.Tooltip
+                {
+                    Custom = @"function({series, seriesIndex, dataPointIndex, w})
+   {
+       var data = w.globals.initialSeries[seriesIndex].data[dataPointIndex];
+       return '<div style=""background-color: rgba(50, 50, 50, 0.70); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; padding: 10px; color: #f0f0f0; font-size: 14px; font-family: Arial, sans-serif; text-align: center;"">' +
+              '<strong>' + data.x + ' </strong> ' +  data.y + ' kWh' + '</div>';
+   }"
+                };
+
+
+
+            // Set default times
+            timePeriod = "Sidste 7 Dage";
+            timeResolution = "Day";
+            displayedTimeResolution = "Dage";
+
+            await LoadZipCodeDataAsync();
+            await GetUserToken();
+            await GetDataAccessTokenAsync();
+            await GetMeteringPointAsync();
+
+            if (meteringPoint is not null)
+            {
+                await GetAverageMonthlyConsumption();
+                SetTimes();
+                await GetTimeSeriesWithPreviousYearAsync();
+                await GetTimeSeriesForLast60DaysAsync();
+                await GetYearConsumption();
+                await GetClimateReport();
+                SetChargeOwner();
+                await GetElspotAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel($"An unexpected error happened during initialization: {ex.Message}", NotificationType.Error));
+        }
+        finally
+        {
+            LoadingService.Hide();
+        }
+    }
+
+    private MudBlazor.Color GetPercentageColor(double percentage)
+    {
+        return percentage >= 0 ? MudBlazor.Color.Error : MudBlazor.Color.Success; // Red for increases, green for decreases
+    }
+
+    private async Task TimePeriodChanged(string value)
+    {
+        timePeriod = value;
+        SetTimes();
+        await GetTimeSeriesWithPreviousYearAsync(hideLoading: true);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void SetYearConsumption(TimeSeriesPeriod timeSeriesPeriod)
+    {
+       yearEnergyConsumption = $"{timeSeriesPeriod.Quantity.ToString("F2")} kWh";
+    }
+
+    private async Task LoadZipCodeDataAsync()
+    {
+        var operationResult = await BlobStorageService.GetZipCodeData();
+        if (operationResult.Success)
+        {
+            zipCodeData = OperationResultHandlers.GetData<ZipCodeData>(operationResult);
+        }
+        else
+        {
+            OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+        }
+    }
+
+    private async Task<List<ChargeOwnerTariffForHour>> LoadChargeOwnerTariffsAsync(string chargeOwner)
+    {
+        List<ChargeOwnerTariffForHour> chargeOwnerTariffForHourList = null;
+        var operationResult = await TariffService.GetChargeOwnerTariffsAsync(chargeOwner);
+        if (operationResult.Success)
+        {
+            var tariffData = OperationResultHandlers.GetData<TariffData>(operationResult);
+            chargeOwnerTariffForHourList = TariffUtilities.ExtractChargeOwnerTariffForHour(tariffData);
+        }
+        else
+        {
+            OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+        }
+        return chargeOwnerTariffForHourList;
+    }
+
+    private async Task<List<NationalTariff>> LoadNationalTariffsAsync()
+    {
+        List<NationalTariff> nationalTariffs = null;
+        var operationResult = await TariffService.GetNationalTariffsAsync();
+        if (operationResult.Success)
+        {
+            var tariffData = OperationResultHandlers.GetData<TariffData>(operationResult);
+            nationalTariffs = TariffUtilities.ExtractNationalTariffs(tariffData);
+        }
+        else
+        {
+            OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+        }
+        return nationalTariffs;
+    }
+
+    private async Task HandleUserZipCodeInput()
+    {
+        try
+        {
+            LoadingService.Show("Indlæser Energi Priser");
+
+            SetChargeOwner();
+
+            if (!string.IsNullOrEmpty(chargeOwner))
+            {
+                await GetElspotAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+        }
+        finally
+        {
+            LoadingService.Hide();
+        }
+    }
+
+    private async Task GetElspotAsync()
+    {
+        var chargeOwnerTariffs = await LoadChargeOwnerTariffsAsync(chargeOwner);
+        if (chargeOwnerTariffs is null)
+        {
+            NotificationService.Add(new NotificationModel("Kunne ikke få fat i charge owner tariffer, da jeg skulle have fat i elspot.", NotificationType.Error));
+        }
+
+        var nationalTariffs = await LoadNationalTariffsAsync();
+        if (nationalTariffs is null)
+        {
+            NotificationService.Add(new NotificationModel("Kunne ikke få fat i nationale tariffer, da jeg skulle have fat i elspot.", NotificationType.Error));
+        }
+
+        if (nationalTariffs is null || chargeOwnerTariffs is null)
+        {
+            NotificationService.Add(new NotificationModel("Henter ikke Elspot prisen da jeg ikke kunne få fat i tarifferne.", NotificationType.Error));
+        }
+        else
+        {
+            var operationResult = await ElspotService.GetElspotLast60HPricesAsync();
+            if (operationResult.Success)
+            {
+                var elspot = OperationResultHandlers.GetData<ElspotResponse>(operationResult);
+
+                elspot.ElspotPrices = elspot.ElspotPrices.OrderBy(x => x.HourDK).ToList();
+                elspot.ConvertMwhToKwh();
+                elspot.GetToday();
+                elspot.GetPricesWithTariffs(nationalTariffs, chargeOwnerTariffs);
+                elspot.AddMoms();
+                elspotPrices = elspot.ElspotPrices;
+                await elspotPriceChart.UpdateSeriesAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+            else
+            {
+                OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+            }
+        }
+    }
+
+    private async Task GetDataAccessTokenAsync()
+    {
+        try
+        {
+            LoadingService.Show("Indhenter Data Access Token");
+            var operationResult = await ElOverblik.GetDataAccessTokenAsync(userToken);
+            if (operationResult.Success)
+            {
+                dataAccessToken = OperationResultHandlers.GetData<TokenResponse>(operationResult).Result;
+            }
+            else
+            {
+                OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+        }
+    }
+
+    private async Task GetMeteringPointAsync()
+    {
+        try
+        {
+            LoadingService.Show("Indhenter Metering Point");
+            var operationResult = await ElOverblik.GetMeteringPointAsync(dataAccessToken);
+            if (operationResult.Success)
+            {
+                var meteringPoints = OperationResultHandlers.GetData<MeteringPointResponse>(operationResult).MeteringPoints;
+
+                if (meteringPoints.Count > 0)
+                {
+                    meteringPoint = meteringPoints.First();
+                    meteringPoint.SetPriceArea();
+                    zipCode = Convert.ToInt32(meteringPoint.Postcode);
+                }
+            }
+            else
+            {
+                OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+        }
+    }
+
+    private async Task<EnergyTimeSeries> GetTimeSeriesAsync(DateTime startDate, DateTime endDate, string timeResolution, bool hideLoading = true)
+    {
+        try
+        {
+            LoadingService.Show("Indlæser Time Series");
+
+            var operationResult = await ElOverblik.GetTimeSeriesAsync(dataAccessToken, meteringPoint.MeteringPointId, startDate, endDate, timeResolution);
+            if (operationResult.Success)
+            {
+                var timeSeriesResponse = OperationResultHandlers.GetData<TimeSeriesResponse>(operationResult);
+                var dataDocument = timeSeriesResponse.Result.FirstOrDefault()?.MyEnergyDataMarketDocument;
+
+                if (dataDocument.TimeSeries.Any())
+                {
+                    var energyTimeSeries = TimeSeriesUtilities.CreateEnergyTimeSeries(dataDocument);
+                    energyTimeSeries.RoundToTwoDecimals();
+
+                    return energyTimeSeries;
+                }
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+            return null;
+        }
+        finally
+        {
+            if (hideLoading)
+                LoadingService.Hide();
+        }
+    }
+
+    private async Task GetAverageMonthlyConsumption()
+    {
+        try
+        {
+            LoadingService.Show("Få fat i gennemsnitlig månedlig forbrug");
+
+            var to = DateTime.Now.AddDays(-(DateTime.Now.Day));
+            var from = to.AddMonths(-12);
+            from = from.AddDays(1);
+
+            var operationResult = await ElOverblik.GetTimeSeriesAsync(dataAccessToken, meteringPoint.MeteringPointId, from, to, "Month");
+            if (operationResult.Success)
+            {
+                var timeSeriesResponse = OperationResultHandlers.GetData<TimeSeriesResponse>(operationResult);
+                var dataDocument = timeSeriesResponse.Result.FirstOrDefault()?.MyEnergyDataMarketDocument;
+
+                var energyTimeSeries = TimeSeriesUtilities.CreateEnergyTimeSeries(dataDocument);
+                energyTimeSeries.RoundToTwoDecimals();
+
+                double totalConsumption = 0;
+                foreach (var period in energyTimeSeries.Periods)
+                {
+                    totalConsumption += period.Quantity;
+                }
+
+                averageMonthlyConsumption = $"{Math.Round(totalConsumption / energyTimeSeries.Periods.Count, 2):0.00} kWh";
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+        }
+    }
+
+    private async Task GetYearConsumption(bool hideLoading = false)
+    {
+        try
+        {
+            LoadingService.Show("Indlæser Time Series for hele året");
+
+            var now = DateTime.Now;
+            var start_of_year = new DateTime(now.Year, 1, 1);
+
+            var operationResult = await ElOverblik.GetTimeSeriesAsync(dataAccessToken, meteringPoint.MeteringPointId, start_of_year, now, "Year");
+            if (operationResult.Success)
+            {
+                var timeSeriesResponse = OperationResultHandlers.GetData<TimeSeriesResponse>(operationResult);
+                var dataDocument = timeSeriesResponse.Result.FirstOrDefault()?.MyEnergyDataMarketDocument;
+
+                var energyTimeSeries = TimeSeriesUtilities.CreateEnergyTimeSeries(dataDocument);
+                energyTimeSeries.RoundToTwoDecimals();
+                SetYearConsumption(energyTimeSeries.Periods.FirstOrDefault(x => x.PeriodStart.Year == DateTime.Now.Year));
+            }
+        }
+        catch
+        {
+            yearEnergyConsumption = "N/A";
+        }
+        finally
+        {
+            if (hideLoading)
+                LoadingService.Hide();
+        }
+    }
+
+    private async Task GetTimeSeriesWithPreviousYearAsync(bool hideLoading = false)
+    {
+        try
+        {
+            var currenyYearEnergyTimeSeries = await GetTimeSeriesAsync(startDate.Value, endDate.Value, timeResolution, hideLoading: hideLoading);
+            if (currenyYearEnergyTimeSeries.Periods.Any())
+            {
+                energyUsage = currenyYearEnergyTimeSeries.Periods;
+            }
+
+            var startLastYear = startDate?.AddYears(-1);
+            var endLastYear = endDate?.AddYears(-1);
+
+            var lastYearEnergyTimeSeries = await GetTimeSeriesAsync(startLastYear.Value, endLastYear.Value, timeResolution, hideLoading: hideLoading);
+
+            if (lastYearEnergyTimeSeries != null && lastYearEnergyTimeSeries.Periods.Any())
+            {
+                energyUsageLastYear = lastYearEnergyTimeSeries.Periods;
+            }
+            else
+            {
+                energyUsageLastYear = null;
+            }
+
+            await energyUsageChart.UpdateSeriesAsync();
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+        }
+    }
+
+    private async Task GetTimeSeriesForLast60DaysAsync()
+    {
+        try
+        {
+            // Calculate the date ranges
+            var endLast30Days = DateTime.Now.Date;
+            var startLast30Days = endLast30Days.AddDays(-30);
+            var endPrevious30Days = startLast30Days;
+            var startPrevious30Days = endPrevious30Days.AddDays(-30);
+
+            // Fetch data for the last 30 days
+            var last30DaysEnergyTimeSeries = await GetTimeSeriesAsync(startLast30Days, endLast30Days, timeResolution, hideLoading: true);
+
+            // Fetch data for the 30 days prior to the last 30 days
+            var previous30DaysEnergyTimeSeries = await GetTimeSeriesAsync(startPrevious30Days, endPrevious30Days, timeResolution, hideLoading: true);
+
+            // Calculate total usage for both periods
+            last30DaysTotal = Math.Round(last30DaysEnergyTimeSeries.Periods.Sum(p => p.Quantity), 2);
+            previous30DaysTotal = Math.Round(previous30DaysEnergyTimeSeries.Periods.Sum(p => p.Quantity), 2);
+
+            // Calculate percentage difference and determine increase or decrease
+            percentageDifference = previous30DaysTotal == 0
+                ? 0
+                : Math.Round(((last30DaysTotal - previous30DaysTotal) / previous30DaysTotal) * 100, 2);
+
+            bool isIncrease = last30DaysTotal > previous30DaysTotal;
+
+            // Log or notify the results
+            changeType = isIncrease ? "stigning" : "reducering";
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+        }
+    }
+
+
+    private async Task GetClimateReport()
+    {
+        try
+        {
+            LoadingService.Show("Indlæser Klima Rapport");
+
+            climateEndDate = DateTime.Today;
+            climateStartDate = climateEndDate.Value.AddYears(-1);
+
+            double userConsumptionKwh = 0;
+            var operationResult = await ElOverblik.GetTimeSeriesAsync(dataAccessToken, meteringPoint.MeteringPointId, climateStartDate.Value, climateEndDate.Value, "Year");
+            if (operationResult.Success)
+            {
+                var timeSeriesResponse = OperationResultHandlers.GetData<TimeSeriesResponse>(operationResult);
+
+                var periods = timeSeriesResponse.Result.First()
+                                            .MyEnergyDataMarketDocument
+                                            .TimeSeries.First()
+                                            .Period;
+
+                userConsumptionKwh = TimeSeriesUtilities.GetUserConsumption(periods);
+
+                var climateRecords = await ClimateReportService.GetClimateRecordsAsync();
+
+                switch (zipCode)
+                {
+                    case int n when (n >= 1000 && n <= 4999):
+                        if (climateRecords.ContainsKey("DK2"))
+                        {
+                            climateRecordPriceArea = climateRecords["DK2"];
+                        }
+                        break;
+
+                    case int n when (n >= 5000 && n <= 9990):
+                        if (climateRecords.ContainsKey("DK1"))
+                        {
+                            climateRecordPriceArea = climateRecords["DK1"];
+                        }
+                        break;
+                }
+
+                var climateReport = ClimateUtilities.CalculateReport(climateRecordPriceArea, userConsumptionKwh);
+
+                climateReport.RoundPricesToTwoDecimals();
+                reportGroups = climateReport.ReportGroups;
+
+
+                await climateChart.UpdateSeriesAsync();
+            }
+            else
+            {
+                OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel(ex.Message, NotificationType.Error));
+        }
+    }
+
+    private void SetTimes()
+    {
+        endDate = DateTime.Now;
+        switch (timePeriod)
+        {
+            case "Igår":
+                startDate = DateTime.Now.AddDays(-1);
+                timeResolution = "Hour";
+                displayedTimeResolution = "Timer";
+                break;
+            case "Sidste 7 Dage":
+                startDate = DateTime.Now.AddDays(-7);
+                timeResolution = "Day";
+                displayedTimeResolution = "Dage";
+                break;
+            case "Sidste 30 Dage":
+                startDate = DateTime.Now.AddMonths(-1);
+                timeResolution = "Day";
+                displayedTimeResolution = "Dage";
+                break;
+            case "Dette År":
+                startDate = DateTime.Now.AddYears(-1);
+                timeResolution = "Month";
+                displayedTimeResolution = "Måneder";
+                break;
+            default:
+                break;
+        }
+    }
+
+    private async Task GetUserToken()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        if (user.Identity.IsAuthenticated)
+        {
+            var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var appUser = await UserManager.FindByIdAsync(userId);
+            userToken = APIEncryption.Decrypt(appUser.ElOverblikApiKey);
+
+        }
+    }
+
+    private void SetChargeOwner()
+    {
+        chargeOwner = zipCodeData.zipCodes
+            .Where(z => z.Code == zipCode)
+            .SelectMany(z => z.DistributionAreas)
+            .Select(d => d.Name)
+            .FirstOrDefault();
+
+        if (string.IsNullOrEmpty(chargeOwner))
+        {
+            NotificationService.Add(new NotificationModel($"Kunne ikke finde charge owner med post nummer: {zipCode}", NotificationType.Error));
+        }
+    }
+}

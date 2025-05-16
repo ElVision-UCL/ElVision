@@ -1,0 +1,376 @@
+﻿@page "/Energindsigt"      
+@using ElVision.Handlers
+@using ElVision.Utilities
+@using ElVisionLibrary.Models.ElPris
+@using ElVisionLibrary.Models.EnergiDataService
+
+@inject IElspotService ElspotService
+@inject ITariffsService TariffService
+@inject IBlobStorageService BlobStorageService
+
+<MudGrid>
+    <MudItem xs="12">
+        <MudText Typo="Typo.h4" Align="MudBlazor.Align.Center" Color="MudBlazor.Color.Primary" Style="font-weight: bold; margin-bottom: 20px; margin-top: 20px;">Hvad koster det?</MudText>
+    </MudItem>
+    @foreach (var item in energyItems)
+    {
+
+        <MudItem xs="12" sm="6" md="4" lg="3">
+
+            <MudCard Style="align-items:center; height:100%;">
+                <MudCardHeader>
+                    <MudText Typo="Typo.body1" Align="MudBlazor.Align.Center">@item.Name</MudText>
+                    @if (item.Name == "En varmeovn døgnet rundt" || item.Name == "Køleskab hele dagen i dag")
+                    {
+                        <MudTooltip Placement="Placement.Right" Text="prisen er udregnet dagens gennemsnitlige elspot pris(med tariffer).">
+                            <MudIconButton Icon="@Icons.Material.Filled.Info"
+                                           Size="MudBlazor.Size.Small"
+                                           Style="margin-left: 5px;" />
+
+                        </MudTooltip>
+                    }
+                    else
+                    {
+                        <MudTooltip Placement="Placement.Right" Text="prisen er udregnet med nuværende times elspot pris(med tariffer).">
+                            <MudIconButton Icon="@Icons.Material.Filled.Info"
+                                           Size="MudBlazor.Size.Small"
+                                           Style="margin-left: 5px;" />
+
+                        </MudTooltip>
+                    }
+
+                </MudCardHeader>
+                <MudCardContent Style="width:100%;">
+                    <MudGrid Justify="Justify.Center">
+                        <MudItem Style="text-align:center;" xs="6">
+                            <MudImage Width="100" Fluid="true" Src="@item.Icon"></MudImage>
+                        </MudItem>
+                        <MudItem Style="text-align:center;" xs="6">
+                            <MudText Align="MudBlazor.Align.Center" Color="MudBlazor.Color.Primary">@item.Cost.ToString("F2") kr</MudText>
+                            <MudText Align="MudBlazor.Align.Center" Color="MudBlazor.Color.Info">@item.UsageDescription</MudText>
+                            <MudText Align="MudBlazor.Align.Center" Color="MudBlazor.Color.Error">ca. @item.UsageKwh kWh</MudText>
+                        </MudItem>
+                    </MudGrid>
+                </MudCardContent>
+            </MudCard>
+
+        </MudItem>
+    }
+</MudGrid>
+
+<MudContainer Class="mt-7" >
+    <MudPaper Class="pa-6" Elevation="3" Square="true">
+        <MudText Typo="Typo.h4" GutterBottom="true" Align="MudBlazor.Align.Center">
+            Hvorfor koster det så meget at varme vand?
+        </MudText>
+        <MudText Align="MudBlazor.Align.Center" Color="MudBlazor.Color.Primary">
+            Det er dyrt at varme vand, og her er årsagerne:
+        </MudText>
+
+        <MudGrid Spacing="3" Class="mt-4">
+            <MudItem xs="12" sm="6">
+                <MudCard Outlined="false" Elevation="0">
+                    <MudCardContent>
+                        <MudText><strong>1. Høj energitæthed:</strong></MudText>
+                        <MudText>
+                            <strong>Vand</strong> har en relativt høj specifik varmekapacitet (ca. 4,18 kJ per gram per grad Celsius).
+                            Det betyder, at det kræver en stor mængde energi at opvarme selv små mængder vand.
+                            Eksempelvis kræver det <strong>1,16 Wh</strong> at varme <strong>1 liter vand med 1 grad Celsius</strong>.
+                        </MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6">
+                <MudCard Outlined="false" Elevation="0">
+                    <MudCardContent>
+                        <MudText><strong>2. Større mængder af vand:</strong></MudText>
+                        <MudText>
+                            I husholdningen bruger vi ofte store mængder vand, f.eks. til at tage et bad eller vaske tøj.
+                            At opvarme store mængder vand kræver betydelig energi.
+                        </MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6">
+                <MudCard Outlined="false" Elevation="0">
+                    <MudCardContent>
+                        <MudText><strong>3. Vandvarmerens effektivitet:</strong></MudText>
+                        <MudText>
+                            <strong>Elvandvarmere</strong> og <strong>varmtvandsbeholdere</strong> bruger elektrisk energi til at varme vandet,
+                            men de er sjældent 100% effektive. En del af energien går tabt som varme.
+                        </MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6">
+                <MudCard Outlined="false" Elevation="0">
+                    <MudCardContent>
+                        <MudText><strong>4. Varmeapparaterne kræver meget energi:</strong></MudText>
+                        <MudText>
+                            Når vi bruger <strong>elvandvarmere</strong> eller <strong>gasfyr</strong>, kræver disse apparater konstant varmeproduktion,
+                            hvilket gør det dyrt.
+                        </MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        </MudGrid>
+
+        <MudDivider Class="mt-5 mb-5" />
+        <MudText Typo="Typo.h6" GutterBottom="true" Class="mt-4" Align="MudBlazor.Align.Center">
+            Tips til at reducere omkostningerne:
+        </MudText>
+
+        <MudGrid Spacing="3">
+
+            <MudItem xs="12" sm="6">
+                <MudCard Outlined="false" Elevation="0">
+                    <MudCardContent>
+                        <MudText><strong>1. Brug energieffektive apparater:</strong></MudText>
+                        <MudText>
+                            Moderne <strong>elvandvarmere</strong> og <strong>vaskemaskiner</strong> bruger mindre energi til at opvarme vand.
+                        </MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudCard Outlined="false" Elevation="0">
+                    <MudCardContent>
+                        <MudText><strong>2. Lavere temperaturer:</strong></MudText>
+                        <MudText>
+                            Sæt din vandvarmer til at opvarme vandet til <strong>40-50°C</strong> i stedet for 60°C for at spare på energiforbruget.
+                        </MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudCard Outlined="false" Elevation="0">
+                    <MudCardContent>
+                        <MudText><strong>3. Brug af varmt vand kun når nødvendigt:</strong></MudText>
+                        <MudText>
+                            Undgå at lade vandet løbe unødigt, og brug <strong>brusehoved med lavt forbrug</strong> for at spare vand og energi.
+                        </MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudCard Outlined="false" Elevation="0">
+                    <MudCardContent>
+                        <MudText><strong>4. Fjernvarme:</strong></MudText>
+                        <MudText>
+                            Generelt set er det billigere at opvarme vand med fjernvarme sammenlignet med andre opvarmningsmetoder som elvarme eller gas, afhængig af de lokale priser og forhold. Fjernvarme er ofte mere energieffektiv, da det udnytter overskudsvarme fra industrielle processer eller affaldsforbrænding, hvilket gør det billigere i forhold til mere direkte energikilder som elektricitet.
+                        </MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    string chargeOwner = "";
+    private int zipCode = 5200;
+    private ZipCodeData zipCodeData = new();
+    private List<ElspotPrice> elspotPrices = new();
+    private double averageSpotPrice = 0;
+    private double thisHourSpotPrice = 0;
+
+    // Dictionary med energikort data
+    private List<EnergyItem> energyItems = new List<EnergyItem>
+    {
+        { new EnergyItem {Name= "Et brusebad", UsageDescription = "10 min, 160 liter vand", UsageKwh = 6, Icon = "/images/insight-icons/shower_1275978.png" } },
+        {new EnergyItem {Name= "Lav mad i ovn", UsageDescription = "Ovn i 30 min", UsageKwh = 1.5, Icon = "/images/insight-icons/oven_8513009.png" } },
+        {new EnergyItem {Name= "Kog 1 liter vand i gryde", UsageDescription = "Kogeplade i 4 min", UsageKwh = 0.1306, Icon = "/images/insight-icons/pot_16114442.png" } },
+        {new EnergyItem {Name= "Kog 1 liter vand med elkedel", UsageDescription = "Elkedel i 3.5 min", UsageKwh = 0.1161, Icon = "/images/insight-icons/drink_13145206.png" } },
+        {new EnergyItem {Name= "Starte opvaskemaskinen", UsageDescription = "For standard program: ca. 13 liter vand", UsageKwh = 1.0, Icon = "/images/insight-icons/dishwasher_896228.png" } },
+        {new EnergyItem {Name= "Starte vaskemaskinen", UsageDescription = "For et standard 40°C program: 40-50 liter vand", UsageKwh = 1.0, Icon = "/images/insight-icons/washing-machine_1104590.png" } },
+        {new EnergyItem {Name= "Gaming Computer m. tilbehør (mid-high end)", UsageDescription = "ca. 0.45 kWh i timen", UsageKwh = 0.45, Icon = "/images/insight-icons/computer_4617866.png" } },
+        {new EnergyItem {Name= "Playstation 5 gaming", UsageDescription = "ca. 0.2 kWh i timen", UsageKwh = 0.2, Icon = "/images/insight-icons/gamepad_4828476.png" } },
+        {new EnergyItem {Name= "Se tv(LCD/LED TV 50 tommer)", UsageDescription = "For en time", UsageKwh = 0.08, Icon = "/images/insight-icons/tv-screen_3211177.png" } },
+        {new EnergyItem {Name= "Se tv(OLED TV 50 tommer)", UsageDescription = "For en time", UsageKwh = 0.12, Icon = "/images/insight-icons/tv-screen_3211177.png" } },
+        {new EnergyItem {Name= "Se tv(Plasma TV 50 tommer)", UsageDescription = "For en time", UsageKwh = 0.18, Icon = "/images/insight-icons/tv-screen_3211177.png" } },
+        {new EnergyItem {Name= "Køleskab", UsageDescription = "For en hel dag", UsageKwh = 0.44, Icon = "/images/insight-icons/fridge_3422489.png" } },
+        {new EnergyItem {Name= "Støvsugning med 800-watt støvsuger", UsageDescription = "30 min støvsugning, 800W", UsageKwh = 0.4, Icon = "/images/insight-icons/vacuum-cleaner_698825.png" } },
+        {new EnergyItem {Name= "Opladning af elbil(Tesla Model 3)", UsageDescription = "52.5 kWh (10-80%). Kan køre ca. 15 kWh per 100 km", UsageKwh = 52.5, Icon = "/images/insight-icons/electric-car_3444059.png" } },
+        {new EnergyItem {Name= "Opladning af elbil(Renault Zoe)", UsageDescription = "36.4 kWh (10-80%). Kan køre ca. 17 kWh per 100 km", UsageKwh = 36.4, Icon = "/images/insight-icons/electric-car_3444059.png" } },
+        {new EnergyItem {Name= "Opladning af iPhone 15", UsageDescription = "3877 mAh batteri, 0-100%", UsageKwh = 0.0184, Icon = "/images/insight-icons/battery_1661521.png" } }
+    };
+
+    public class EnergyItem
+    {
+        public string Name { get; set; }
+        public double Cost { get; set; }
+        public string UsageDescription { get; set; }
+        public double UsageKwh { get; set; }
+        public string Icon { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            LoadingService.Show("Indlæser siden");
+
+            await LoadZipCodeDataAsync();
+            if(zipCodeData is not null)
+            {
+                SetChargeOwner();
+                if(chargeOwner is not null)
+                {
+                    await GetElspotAsync();
+                    if (elspotPrices is not null)
+                    {
+                        GetAverageSpotPrice();
+                        GetThisHourSpotPrice();
+                        SetCosts();
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Add(new NotificationModel($"An unexpected error happened during initialization: {ex.Message}", NotificationType.Error));
+        }
+        finally
+        {
+            LoadingService.Hide();
+        }
+    }
+
+    private void GetThisHourSpotPrice()
+    {
+        var now = DateTime.Now;
+        foreach (var price in elspotPrices)
+        {
+            if(now.Hour == price.HourDK.Hour)
+            {
+                thisHourSpotPrice = Convert.ToDouble(price.SpotPriceDKK);
+                break;
+            }
+        }
+    }
+
+    private void GetAverageSpotPrice()
+    {
+        double totalSpotPrice = 0;
+        foreach(var price in elspotPrices)
+        {
+            totalSpotPrice += Convert.ToDouble(price.SpotPriceDKK);
+        }
+        averageSpotPrice = totalSpotPrice / elspotPrices.Count;
+    }
+
+    private void SetCosts()
+    {
+        for(int i = 0; i < energyItems.Count; i++)
+        {
+            if (energyItems[i].Name == "En varmeovn døgnet rundt" || energyItems[i].Name == "Køleskab hele dagen i dag")
+            {
+                energyItems[i].Cost = energyItems[i].UsageKwh * averageSpotPrice;
+            }
+            else
+            {
+                energyItems[i].Cost = energyItems[i].UsageKwh * thisHourSpotPrice;
+            }
+        }
+    }
+
+    private async Task LoadZipCodeDataAsync()
+    {
+        var operationResult = await BlobStorageService.GetZipCodeData();
+        if (operationResult.Success)
+        {
+            zipCodeData = OperationResultHandlers.GetData<ZipCodeData>(operationResult);
+        }
+        else
+        {
+            OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+        }
+    }
+
+    private void SetChargeOwner()
+    {
+        chargeOwner = zipCodeData.zipCodes
+            .Where(z => z.Code == zipCode)
+            .SelectMany(z => z.DistributionAreas)
+            .Select(d => d.Name)
+            .FirstOrDefault();
+
+        if (string.IsNullOrEmpty(chargeOwner))
+        {
+            NotificationService.Add(new NotificationModel($"Kunne ikke finde charge owner med post nummer: {zipCode}", NotificationType.Error));
+        }
+    }
+
+    private async Task<List<ChargeOwnerTariffForHour>> LoadChargeOwnerTariffsAsync(string chargeOwner)
+    {
+        List<ChargeOwnerTariffForHour> chargeOwnerTariffForHourList = null;
+        var operationResult = await TariffService.GetChargeOwnerTariffsAsync(chargeOwner);
+        if (operationResult.Success)
+        {
+            var tariffData = OperationResultHandlers.GetData<TariffData>(operationResult);
+            chargeOwnerTariffForHourList = TariffUtilities.ExtractChargeOwnerTariffForHour(tariffData);
+        }
+        else
+        {
+            OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+        }
+        return chargeOwnerTariffForHourList;
+    }
+
+    private async Task GetElspotAsync()
+    {
+        var chargeOwnerTariffs = await LoadChargeOwnerTariffsAsync(chargeOwner);
+        if (chargeOwnerTariffs is null)
+        {
+            NotificationService.Add(new NotificationModel("Kunne ikke få fat i charge owner tariffer, da jeg skulle have fat i elspot.", NotificationType.Error));
+        }
+
+        var nationalTariffs = await LoadNationalTariffsAsync();
+        if (nationalTariffs is null)
+        {
+            NotificationService.Add(new NotificationModel("Kunne ikke få fat i nationale tariffer, da jeg skulle have fat i elspot.", NotificationType.Error));
+        }
+
+        if (nationalTariffs is null || chargeOwnerTariffs is null)
+        {
+            NotificationService.Add(new NotificationModel("Henter ikke Elspot prisen da jeg ikke kunne få fat i tarifferne.", NotificationType.Error));
+        }
+        else
+        {
+            var operationResult = await ElspotService.GetElspotLast60HPricesAsync();
+            if (operationResult.Success)
+            {
+                var elspot = OperationResultHandlers.GetData<ElspotResponse>(operationResult);
+
+                elspot.ElspotPrices = elspot.ElspotPrices.OrderBy(x => x.HourDK).ToList();
+                elspot.ConvertMwhToKwh();
+                elspot.GetToday();
+                elspot.GetPricesWithTariffs(nationalTariffs, chargeOwnerTariffs);
+                elspotPrices = elspot.ElspotPrices;
+            }
+            else
+            {
+                OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+            }
+        }
+    }
+
+    private async Task<List<NationalTariff>> LoadNationalTariffsAsync()
+    {
+        List<NationalTariff> nationalTariffs = null;
+        var operationResult = await TariffService.GetNationalTariffsAsync();
+        if (operationResult.Success)
+        {
+            var tariffData = OperationResultHandlers.GetData<TariffData>(operationResult);
+            nationalTariffs = TariffUtilities.ExtractNationalTariffs(tariffData);
+        }
+        else
+        {
+            OperationResultHandlers.HandleUnsuccesful(operationResult, NotificationService);
+        }
+        return nationalTariffs;
+    }
+}

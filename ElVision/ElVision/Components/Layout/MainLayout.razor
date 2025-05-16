@@ -1,0 +1,52 @@
+﻿@inherits LayoutComponentBase
+
+<Notification />
+<Loading />
+
+<MudThemeProvider Theme="MyCustomTheme" IsDarkMode="true" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+<MudLayout>
+    <Notification />
+    <Loading />
+    <MudAppBar Elevation="1" Style="background-color: #022e3e;">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="MudBlazor.Color.Primary" Edge="Edge.Start" OnClick="@((e) => DrawerToggle())" />
+        <MudImage Src="images/ElvisionLogoOnly.png" Alt="Description of image" Style="max-width: 100%; max-height: 60px; object-fit: contain;" />
+        <MudSpacer />
+        <MudImage Src="images/ElvisionText.png" Alt="Description of image" Style="max-width: 100%; max-height: 50px; object-fit: contain;" />
+    </MudAppBar>
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
+        <NavMenu />
+    </MudDrawer>
+    <MudMainContent Class="mt-16 pa-4">
+        @Body
+    </MudMainContent>
+</MudLayout>
+
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">🗙</a>
+</div>
+
+@code {
+    MudTheme MyCustomTheme = new MudTheme()
+        {
+            PaletteDark = new PaletteDark()
+            {
+                Primary = "#04b084",
+                Secondary = "#045c7c",
+            },
+        };
+    private bool _drawerOpen = true;
+
+    private void DrawerToggle()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+
+}
+
+
